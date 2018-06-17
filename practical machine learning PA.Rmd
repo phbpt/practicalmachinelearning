@@ -1,0 +1,207 @@
+---
+title: "Coursera Practical machine learning programming assignment"
+author: "Peter B."
+date: "17 Juni 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+### Background information and assignment instructions
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now
+possible to collect a large amount of data about personal activity relatively
+inexpensively. These type of devices are part of the quantified self
+movement - a group of enthusiasts who take measurements about
+themselves regularly to improve their health, to find patterns in their
+behavior, or because they are tech geeks. One thing that people regularly
+do is quantify how much of a particular activity they do, but they rarely
+quantify how well they do it. In this project, your goal will be to use data
+from accelerometers on the belt, forearm, arm, and dumbell of 6
+participants. They were asked to perform barbell lifts correctly and
+incorrectly in 5 different ways. More information is available from the
+website here: http://groupware.les.inf.puc-rio.br/har (see the section on
+the Weight Lifting Exercise Dataset).
+
+### Data
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+Data source:
+http://groupware.les.inf.puc-rio.br/har [last accessed: 15June2018]
+more details can be found here:
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013. 
+
+### Assigment
+The goal of your project is to predict the manner in which they did the
+exercise. This is the "classe" variable in the training set. You may use any
+of the other variables to predict with. You should create a report
+describing how you built your model, how you used cross validation, what
+you think the expected out of sample error is, and why you made the
+choices you did. You will also use your prediction model to predict 20
+different test cases.
+
+
+## Summary
+After reading the datasets a basic exploratory data analyses is performed. In a next step empty variables are excluded as well as variables with a zero or close to zero variance that won't conribute to a model.The training data is for cross-validation purposes partioned in a test and training data set. In a first step a decision tree model is applied. The accurany with 0.7 is not conincing. So a random forest model is used. Here an accuracy of 0.98 is obtained. The expected out of sample rate is 2.3% and acceptable.
+
+## Programming part
+
+### Getting the data
+```{r libs, include= FALSE}
+
+library(caret)
+#library(DataExplorer)
+#library(gbm)
+library(Hmisc)
+library(randomForest)
+library(rattle)
+library(rpart)
+library(rpart.plot)
+#library(VIM)
+
+setwd("C:/Users/bonat/Desktop/practical machine learning/practical machine learning week 4")
+
+# training data set
+#fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+#download.file(fileUrl, destfile= paste0(getwd(), "pml-training.csv"))
+#training0 <- read.csv(paste0(getwd(), "pml-training.csv"))
+
+# test data set
+#fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+#download.file(fileUrl, destfile= paste0(getwd(), "pml-testing.csv"))
+#testing0 <- read.csv(paste0(getwd(), "pml-testing.csv"))
+
+```
+
+
+```{r datain, include= TRUE, echo= TRUE}
+#fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+#download.file(fileUrl, destfile= paste0(getwd(), "pml-training.csv"))
+training0 <- read.csv(paste0(getwd(), "pml-training.csv"))
+
+#fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+#download.file(fileUrl, destfile= paste0(getwd(), "pml-testing.csv"))
+testing0 <- read.csv(paste0(getwd(), "pml-testing.csv"))
+```
+
+
+### Explorative data analyses
+To get an first impression of the available data explorative data analyses tools are used to summarize the data and get information and variable types etc.
+For readablity purposes only the codeis shown in the submission.
+
+```{r explorative, include= TRUE, echo= TRUE}
+# str(training0)
+# dim(training0)
+# summary(training0)
+```
+
+As we have to deal in this dataset with a lot of missing values they will now be analyzed further using the testing data set, because variables that here are completely missing do not contribute to a model.
+
+
+### Cleaning data
+In this part of the assignment 
+- all empty and not model suited variables are removed.
+The variables that are not suitable in the modeling are:
+ "X", "user_name",  "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp",  "new_window",  "num_window" and the variables that are empty are statistics related (mean, standard deviation, skewness, kurtosis and variance). So all variables that are usable will be kept and in a next step those variables will be kept in both - training and testing - data sets.
+- in a second step all variables that do not conribute based on a varianve close to zero or zero will be removed as they do also not conribute to a model fitting using the nearZeroVar function from the caret package.
+
+ 
+```{r clean, include= TRUE, echo= TRUE}
+# remove variables with only missing values
+colSums(is.na(training0))
+keepVar <- names(training0[,colSums(is.na(training0)) == 0])
+keepVar2 <- keepVar[8:59]
+
+training1 <- training0[,c(keepVar2,"classe")]
+testing1  <- testing0[,c(keepVar2,"problem_id")]
+
+# remove variables with a variance close to zero 
+NZV <- nearZeroVar(training1)
+training2 <- training1[, -NZV]
+testingFinal  <- testing1[, -NZV]
+dim(training2); dim(testingFinal)
+```
+
+Using this two approaches the input dataset for the modeling is reduced from 160 variables to 30 variables.
+
+
+### Partioning the data
+The "training" data set will be split into a training data set containing 60% of the observations and a testing data set (40% of the total cases) bases on the outcome variable "classe". This will allow us to perform a cross-validation and estimate the out of sample error. For reproducibilty purposes we will also set a seed, here: 999.
+
+```{r partion, include= TRUE, echo= TRUE }
+set.seed(999)
+library(caret)
+inTrain  <- createDataPartition(training2$classe, p=0.6, list=FALSE)
+training <- training2[inTrain,]
+testing  <- training2[-inTrain,]
+dim(training);dim(testing)
+
+```
+
+### Correlation
+In order to identify potential confounding issues the correlations among the variables are examined.
+
+```{r relationship, include= TRUE, echo= TRUE}
+corrMatrix <- cor(training2[, -30])
+```
+Examing the correlations among the predictors the majority is unrelated and so we continue without further pre-processing of the data.
+
+
+### prediction modelling
+In this step a decision tree as starting point is used and relevant statistics examined
+```{r rforest, include= TRUE, echo= TRUE}
+set.seed(999)
+library(rpart)
+library(rpart.plot)
+modFit <- rpart(classe ~ ., data = training, method="class")
+fancyRpartPlot(modFit)
+
+set.seed(999)
+prediction <- predict(modFit, testing, type = "class")
+confusionMatrix(prediction, testing$classe)
+```
+
+
+
+A Random Forest model is created. Here a control dataset is used with the method cv and the number of resampling is set to three.
+```{r rforest1, include= TRUE, echo= TRUE}
+#set.seed(999)
+#modFitRF <- randomForest(classe ~ ., data = training, ntree = 500)
+#prediction <- predict(modFitRF, testing, type = "class")
+#confusionMatrix(prediction, testing$classe)
+
+
+set.seed(999)
+controlRf <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modFitRF2<- train(classe ~ ., data=training, method="rf",
+                          trControl=controlRf)
+modFitRF2$finalModel
+
+
+# prediction on Test dataset
+set.seed(999)
+predictRF <- predict(modFitRF2, newdata=testing)
+confusionMatRF <- confusionMatrix(predictRF, testing$classe)
+confusionMatRF
+```
+Using the test data set for cross- validation an accuracy of 0.98 is obtained.
+Though there might be still a tendency to overfitting, this model will be used as final model. The expected out of sample error is 2,32 %.
+
+
+### Conclusion
+See summary at the beginning of the document. 
+
+### Applying Random forest predcition to the provided 20 test cases
+```{r subm_, include= TRUE, echo= TRUE}
+predictSubm <- predict(modFitRF2, newdata=testingFinal)
+predictSubm
+```
+
+
+
+
